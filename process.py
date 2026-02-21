@@ -10,6 +10,10 @@ from sklearn.preprocessing import StandardScaler
 
 print = lambda *args, **kwargs: __builtins__.__dict__["print"](*args, **kwargs, flush=True)
 
+DATA_FILE = sys.argv[1] if len(sys.argv) > 1 else "electricity_binarized_UP.csv"
+NUM_EPOCHS = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
+USE_COMPILE = "--no-compile" not in sys.argv
+
 print(f"Python {sys.version}")
 
 # ============================
@@ -31,7 +35,6 @@ total_start = time.perf_counter()
 
 print("Loading CSV...", end=" ")
 t = time.perf_counter()
-DATA_FILE = "electricity_binarized_UP.csv"
 df = pd.read_csv(DATA_FILE)
 print(f"done ({time.perf_counter() - t:.3f}s)")
 
@@ -89,16 +92,24 @@ torch_model = TabularNN(n_features).to(device)
 print(f"Model created: {sum(p.numel() for p in torch_model.parameters()):,} parameters")
 print(f"Model device:  {next(torch_model.parameters()).device}")
 
-# Compile model for fused GPU kernels
-print("Compiling model...", end=" ")
-t = time.perf_counter()
-torch_model = torch.compile(torch_model)
-print(f"done ({time.perf_counter() - t:.3f}s)")
+# Compile model for fused GPU kernels (may fail on Windows without MSVC)
+compiled = False
+if USE_COMPILE:
+    print("Compiling model...", end=" ")
+    t = time.perf_counter()
+    try:
+        torch_model = torch.compile(torch_model)
+        compiled = True
+        print(f"done ({time.perf_counter() - t:.3f}s)")
+    except Exception as e:
+        print(f"skipped ({e})")
+        print("  (torch.compile requires a C++ compiler on CPU; falling back to eager mode)")
+else:
+    print("Skipping torch.compile (--no-compile flag set)")
 
 # ============================
 # Loss + optimizer + scheduler
 # ============================
-NUM_EPOCHS = 1000
 N = X_train_t.shape[0]
 
 criterion = nn.BCEWithLogitsLoss()
@@ -127,6 +138,8 @@ print(f"Training:    {X_train_t.shape[0]} samples | Test: {X_test_t.shape[0]} sa
 print(f"Model:       {sum(p.numel() for p in torch_model.parameters()):,} parameters")
 print(f"Epochs:      up to {NUM_EPOCHS} (early stop patience={PATIENCE})")
 print(f"Batch:       full-batch ({N} samples)")
+print(f"Compile:     {'requested' if USE_COMPILE else 'not requested (--no-compile)'}")
+print(f"Compiled:    {'yes' if compiled else 'no'}")
 print(f"{'=' * 50}")
 print()
 
