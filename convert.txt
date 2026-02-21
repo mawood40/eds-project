@@ -1,0 +1,72 @@
+#---------------------------------------------
+# CONVERT A FILE WITH NO EXTENSION TO A CSV FILE
+#---------------------------------------------
+
+
+
+from pathlib import Path
+import csv
+import pandas as pd
+
+# Define paths
+DATASETS_PATH = Path(r"D:\Datasets_for_ML_Benchmarking_Final")
+input_file = DATASETS_PATH / "Medical-Appointment"
+output_file = DATASETS_PATH / "Medical-Appointment.csv"
+
+# Initialize containers
+attribute_names = []
+data_rows = []
+in_data_section = False
+
+# Read and parse the file
+with input_file.open("r", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith("%"):
+            continue
+        if line.lower().startswith("@attribute"):
+            parts = line.split()
+            name = parts[1].strip('"')
+            attribute_names.append(name)
+        elif line.lower().startswith("@data"):
+            in_data_section = True
+        elif in_data_section:
+            data_rows.append(line.split(","))
+
+# Write to CSV
+with output_file.open("w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(attribute_names)
+    writer.writerows(data_rows)
+
+print(f"\n✅ CSV saved to: {output_file}")
+
+
+# Load CSV into DataFrame for diagnostics
+df = pd.read_csv(output_file)
+
+# Print dataset shape
+print(f"\n📐 Dataset shape: {df.shape[0]} rows × {df.shape[1]} columns")
+
+# Print column names and types
+print("\n🔤 Column names and inferred types:")
+print(df.dtypes)
+
+# Print number of unique values per column
+print("---------------------------------------")
+print("\n🔢 Unique value counts per column:")
+unique_counts = df.nunique(dropna=False)
+for col, count in unique_counts.items():
+    print(f"🧮 {col}: {count} unique values")
+
+print("---------------------------------------")
+
+# Print summary statistics for numeric columns
+print("\n📊 Summary statistics (numeric columns):")
+print(df.describe(include='number'))
+
+# Print top value counts for categorical columns
+print("\n🔎 Top value counts (categorical columns):")
+for col in df.select_dtypes(include='object').columns:
+    print(f"\n🧬 {col} (top 5 values):")
+    print(df[col].value_counts().head(5))
