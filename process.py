@@ -1,5 +1,6 @@
 import sys
 import time
+import copy
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -66,10 +67,8 @@ y_test_t = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1).to(device)
 print("done")
 
 # ============================
-# Define model (streamlined for speed — no BatchNorm/Dropout)
+# Define model (streamlined for speed)
 # ============================
-BATCH_SIZE = 2048
-
 class TabularNN(nn.Module):
     def __init__(self, n_features):
         super().__init__()
@@ -89,45 +88,76 @@ torch_model = TabularNN(n_features).to(device)
 print(f"Model created: {sum(p.numel() for p in torch_model.parameters()):,} parameters")
 print(f"Model device:  {next(torch_model.parameters()).device}")
 
-# ============================
-# Loss + optimizer
-# ============================
-criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(torch_model.parameters(), lr=0.001, weight_decay=0.0001)
+# Compile model for fused GPU kernels
+print("Compiling model...", end=" ")
+t = time.perf_counter()
+torch_model = torch.compile(torch_model)
+print(f"done ({time.perf_counter() - t:.3f}s)")
 
 # ============================
-# Training loop (GPU-side shuffling, large batches)
+# Loss + optimizer + scheduler
 # ============================
 NUM_EPOCHS = 1000
 N = X_train_t.shape[0]
-print(f"\nTraining for {NUM_EPOCHS} epochs (batch size {BATCH_SIZE})...")
+
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(torch_model.parameters(), lr=0.001, weight_decay=0.0001)
+scheduler = optim.lr_scheduler.OneCycleLR(
+    optimizer, max_lr=0.01, epochs=NUM_EPOCHS, steps_per_epoch=1
+)
+
+# ============================
+# Training loop (full-batch, early stopping)
+# ============================
+PATIENCE = 50
+PRINT_EVERY = 50
+
+best_loss = float("inf")
+best_weights = None
+wait = 0
+stop_epoch = NUM_EPOCHS
+
+print(f"\nTraining for up to {NUM_EPOCHS} epochs (full-batch, early stop patience={PATIENCE})...")
 print("-" * 50)
 
 t = time.perf_counter()
 for epoch in range(NUM_EPOCHS):
     torch_model.train()
-    perm = torch.randperm(N, device=device)
 
-    for i in range(0, N, BATCH_SIZE):
-        idx = perm[i:i + BATCH_SIZE]
-        xb = X_train_t[idx]
-        yb = y_train_t[idx]
+    optimizer.zero_grad(set_to_none=True)
+    logits = torch_model(X_train_t)
+    loss = criterion(logits, y_train_t)
+    loss.backward()
+    optimizer.step()
+    scheduler.step()
 
-        optimizer.zero_grad(set_to_none=True)
-        logits = torch_model(xb)
-        loss = criterion(logits, yb)
-        loss.backward()
-        optimizer.step()
+    epoch_loss = loss.item()
+
+    # Early stopping check
+    if epoch_loss < best_loss - 1e-5:
+        best_loss = epoch_loss
+        best_weights = copy.deepcopy(torch_model.state_dict())
+        wait = 0
+    else:
+        wait += 1
+        if wait >= PATIENCE:
+            stop_epoch = epoch + 1
+            break
 
     pct = (epoch + 1) / NUM_EPOCHS * 100
     bar = "#" * int(pct // 2) + "-" * (50 - int(pct // 2))
-    print(f"\r[{bar}] {pct:5.1f}%  Epoch {epoch+1:3d}/{NUM_EPOCHS}  Loss: {loss.item():.4f}", end="")
+    msg = f"\r[{bar}] {pct:5.1f}%  Epoch {epoch+1:4d}/{NUM_EPOCHS}  Loss: {epoch_loss:.4f}  LR: {scheduler.get_last_lr()[0]:.6f}"
+    print(msg, end="")
 
-    if (epoch + 1) % 10 == 0:
+    if (epoch + 1) % PRINT_EVERY == 0:
         print()
 
 train_time = time.perf_counter() - t
-print(f"\nTraining complete in {train_time:.3f}s")
+print(f"\nTraining complete in {train_time:.3f}s ({stop_epoch} epochs, best loss: {best_loss:.4f})")
+
+# Restore best weights
+if best_weights is not None:
+    torch_model.load_state_dict(best_weights)
 
 # ============================
 # Evaluation
