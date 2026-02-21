@@ -13,6 +13,7 @@ print = lambda *args, **kwargs: __builtins__.__dict__["print"](*args, **kwargs, 
 DATA_FILE = sys.argv[1] if len(sys.argv) > 1 else "electricity_binarized_UP.csv"
 NUM_EPOCHS = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
 USE_COMPILE = "--compile" in sys.argv
+USE_EARLY_STOP = "--early-stop" in sys.argv
 
 print(f"Python {sys.version}")
 
@@ -118,6 +119,11 @@ scheduler = optim.lr_scheduler.OneCycleLR(
     optimizer, max_lr=0.01, epochs=NUM_EPOCHS, steps_per_epoch=1
 )
 
+# Mixed precision setup
+device_type = "cuda" if device.type == "cuda" else "cpu" if device.type == "cpu" else device.type
+use_amp = device.type in ("cuda", "mps")
+grad_scaler = torch.amp.GradScaler(enabled=(device.type == "cuda"))
+
 # ============================
 # Training loop (full-batch, early stopping)
 # ============================
@@ -136,9 +142,10 @@ print(f"Device:      {device}")
 print(f"Dataset:     {df.shape[0]} rows, {df.shape[1]} columns")
 print(f"Training:    {X_train_t.shape[0]} samples | Test: {X_test_t.shape[0]} samples")
 print(f"Model:       {sum(p.numel() for p in torch_model.parameters()):,} parameters")
-print(f"Epochs:      up to {NUM_EPOCHS} (early stop patience={PATIENCE})")
+print(f"Epochs:      {NUM_EPOCHS}{f' (early stop patience={PATIENCE})' if USE_EARLY_STOP else ''}")
 print(f"Batch:       full-batch ({N} samples)")
-print(f"Compile:     {'requested' if USE_COMPILE else 'not requested (--no-compile)'}")
+print(f"Precision:   {'mixed (float16)' if use_amp else 'float32'}")
+print(f"Compile:     {'requested' if USE_COMPILE else 'not requested (--compile to enable)'}")
 print(f"Compiled:    {'yes' if compiled else 'no'}")
 print(f"{'=' * 50}")
 print()
@@ -148,35 +155,40 @@ for epoch in range(NUM_EPOCHS):
     torch_model.train()
 
     optimizer.zero_grad(set_to_none=True)
-    logits = torch_model(X_train_t)
-    loss = criterion(logits, y_train_t)
-    loss.backward()
-    optimizer.step()
+
+    with torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp):
+        logits = torch_model(X_train_t)
+        loss = criterion(logits, y_train_t)
+
+    grad_scaler.scale(loss).backward()
+    grad_scaler.step(optimizer)
+    grad_scaler.update()
     scheduler.step()
 
     epoch_loss = loss.item()
 
-    # Early stopping check
-    if epoch_loss < best_loss - 1e-5:
-        best_loss = epoch_loss
-        best_weights = copy.deepcopy(torch_model.state_dict())
-        wait = 0
-    else:
-        wait += 1
-        if wait >= PATIENCE:
-            stop_epoch = epoch + 1
-            break
+    if USE_EARLY_STOP:
+        if epoch_loss < best_loss - 1e-5:
+            best_loss = epoch_loss
+            best_weights = copy.deepcopy(torch_model.state_dict())
+            wait = 0
+        else:
+            wait += 1
+            if wait >= PATIENCE:
+                stop_epoch = epoch + 1
+                break
 
     if (epoch + 1) % PRINT_EVERY == 0:
         pct = (epoch + 1) / NUM_EPOCHS * 100
         print(f"Epoch {epoch+1:4d}/{NUM_EPOCHS}  Loss: {epoch_loss:.4f}  LR: {scheduler.get_last_lr()[0]:.6f}  ({pct:.0f}%)")
 
 train_time = time.perf_counter() - t
-print(f"\nTraining complete in {train_time:.3f}s ({stop_epoch} epochs, best loss: {best_loss:.4f})")
-
-# Restore best weights
-if best_weights is not None:
-    torch_model.load_state_dict(best_weights)
+if USE_EARLY_STOP:
+    print(f"\nTraining complete in {train_time:.3f}s ({stop_epoch} epochs, best loss: {best_loss:.4f})")
+    if best_weights is not None:
+        torch_model.load_state_dict(best_weights)
+else:
+    print(f"\nTraining complete in {train_time:.3f}s ({NUM_EPOCHS} epochs)")
 
 # ============================
 # Evaluation
@@ -184,7 +196,7 @@ if best_weights is not None:
 print("-" * 50)
 print("Evaluating on test set...", end=" ")
 torch_model.eval()
-with torch.no_grad():
+with torch.no_grad(), torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp):
     logits = torch_model(X_test_t)
     preds = (logits >= 0).float()
     acc = preds.eq(y_test_t).sum().item() / len(y_test_t)
