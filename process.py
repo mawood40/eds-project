@@ -9,6 +9,8 @@ from sklearn.preprocessing import StandardScaler
 
 print = lambda *args, **kwargs: __builtins__.__dict__["print"](*args, **kwargs, flush=True)
 
+print(f"Python {sys.version}")
+
 # ============================
 # Device selection: MPS (Apple Silicon GPU) > CUDA > CPU
 # ============================
