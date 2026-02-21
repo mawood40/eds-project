@@ -31,7 +31,8 @@ total_start = time.perf_counter()
 
 print("Loading CSV...", end=" ")
 t = time.perf_counter()
-df = pd.read_csv("electricity_binarized_UP.csv")
+DATA_FILE = "electricity_binarized_UP.csv"
+df = pd.read_csv(DATA_FILE)
 print(f"done ({time.perf_counter() - t:.3f}s)")
 
 print("Separating features/target...", end=" ")
@@ -117,8 +118,17 @@ best_weights = None
 wait = 0
 stop_epoch = NUM_EPOCHS
 
-print(f"\nTraining for up to {NUM_EPOCHS} epochs (full-batch, early stop patience={PATIENCE})...")
-print("-" * 50)
+print(f"\n{'=' * 50}")
+print(f"Data file:   {DATA_FILE}")
+print(f"Python:      {sys.version.split()[0]}")
+print(f"Device:      {device}")
+print(f"Dataset:     {df.shape[0]} rows, {df.shape[1]} columns")
+print(f"Training:    {X_train_t.shape[0]} samples | Test: {X_test_t.shape[0]} samples")
+print(f"Model:       {sum(p.numel() for p in torch_model.parameters()):,} parameters")
+print(f"Epochs:      up to {NUM_EPOCHS} (early stop patience={PATIENCE})")
+print(f"Batch:       full-batch ({N} samples)")
+print(f"{'=' * 50}")
+print()
 
 t = time.perf_counter()
 for epoch in range(NUM_EPOCHS):
@@ -144,13 +154,9 @@ for epoch in range(NUM_EPOCHS):
             stop_epoch = epoch + 1
             break
 
-    pct = (epoch + 1) / NUM_EPOCHS * 100
-    bar = "#" * int(pct // 2) + "-" * (50 - int(pct // 2))
-    msg = f"\r[{bar}] {pct:5.1f}%  Epoch {epoch+1:4d}/{NUM_EPOCHS}  Loss: {epoch_loss:.4f}  LR: {scheduler.get_last_lr()[0]:.6f}"
-    print(msg, end="")
-
     if (epoch + 1) % PRINT_EVERY == 0:
-        print()
+        pct = (epoch + 1) / NUM_EPOCHS * 100
+        print(f"Epoch {epoch+1:4d}/{NUM_EPOCHS}  Loss: {epoch_loss:.4f}  LR: {scheduler.get_last_lr()[0]:.6f}  ({pct:.0f}%)")
 
 train_time = time.perf_counter() - t
 print(f"\nTraining complete in {train_time:.3f}s ({stop_epoch} epochs, best loss: {best_loss:.4f})")
