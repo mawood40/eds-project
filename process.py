@@ -96,7 +96,7 @@ optimizer = optim.Adam(torch_model.parameters(), lr=0.001, weight_decay=0.0001)
 # ============================
 # Training loop (GPU-side shuffling, large batches)
 # ============================
-NUM_EPOCHS = 30
+NUM_EPOCHS = 1000
 N = X_train_t.shape[0]
 print(f"\nTraining for {NUM_EPOCHS} epochs (batch size {BATCH_SIZE})...")
 print("-" * 50)
