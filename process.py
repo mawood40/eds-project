@@ -12,7 +12,7 @@ print = lambda *args, **kwargs: __builtins__.__dict__["print"](*args, **kwargs, 
 
 DATA_FILE = sys.argv[1] if len(sys.argv) > 1 else "electricity_binarized_UP.csv"
 NUM_EPOCHS = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
-USE_COMPILE = "--no-compile" not in sys.argv
+USE_COMPILE = "--compile" in sys.argv
 
 print(f"Python {sys.version}")
 
@@ -105,7 +105,7 @@ if USE_COMPILE:
         print(f"skipped ({e})")
         print("  (torch.compile requires a C++ compiler on CPU; falling back to eager mode)")
 else:
-    print("Skipping torch.compile (--no-compile flag set)")
+    print("Skipping torch.compile (pass --compile to enable)")
 
 # ============================
 # Loss + optimizer + scheduler
