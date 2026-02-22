@@ -23,25 +23,36 @@ The [Electricity dataset](https://www.openml.org/d/151) — 38,474 rows, 8 colum
 
 The [Covertype dataset](https://www.openml.org/d/293) — 566,602 rows, 11 columns. Predicts forest cover type (binarized).
 
-Convert from the included ARFF source file:
+Convert from the included ARFF source file, or unzip `covertype.csv.zip`:
 
 ```bash
-python convert_covertype.py
+python convert_covertype.py       # convert from ARFF
+# or
+unzip covertype.csv.zip           # extract pre-built CSV
 ```
 
 ## Requirements
 
-- Python 3.11+ (enforced in `pyproject.toml`)
+- Python 3.14+ (enforced in `pyproject.toml`)
 - Packages listed in `requirements.txt`:
   - `pandas >= 2.0.0`
   - `scikit-learn >= 1.3.0`
   - `torch >= 2.0.0`
 
+### CUDA Setup (Windows/Linux with NVIDIA GPU)
+
+The default `pip install torch` installs CPU-only. For CUDA support:
+
+```bash
+pip uninstall torch -y
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+```
+
 ## Setup
 
 ```bash
 # Create a virtual environment
-python3.11 -m venv venv
+python3.14 -m venv venv
 
 # Activate it
 source venv/bin/activate        # macOS / Linux
@@ -74,13 +85,15 @@ python process.py covertype.csv 1000 --early-stop          # with early stopping
 python process.py covertype.csv 1000 --compile --early-stop  # all options
 ```
 
-### Expected Output
+### Expected Output (macOS / MPS)
 
 ```
 ==================================================
 Data file:   covertype.csv
-Python:      3.11.12
+Python:      3.14.3
+PyTorch:     2.10.0
 Device:      mps
+GPU:         Apple Silicon (MPS)
 Dataset:     566602 rows, 11 columns
 Training:    453281 samples | Test: 113321 samples
 Model:       3,009 parameters
@@ -101,6 +114,21 @@ Evaluating on test set... done
 
 Test Accuracy: 0.7523 (75.2%)
 Total time:    14.567s
+```
+
+### Expected Output (Windows / CUDA)
+
+```
+==================================================
+Data file:   covertype.csv
+Python:      3.13.3
+PyTorch:     2.10.0
+Device:      cuda
+GPU:         NVIDIA GeForce RTX 4090
+CUDA:        12.4
+GPU memory:  24.0 GB
+...
+==================================================
 ```
 
 ## What the Script Does
@@ -167,7 +195,7 @@ Parameter count depends on input features (e.g., 2,625 for 7 features, 3,009 for
 ### `GPU-3` -> `GPU-4`
 - Added CLI argument for input dataset (first arg, default: electricity CSV)
 - Added CLI argument for epoch count (second arg, default: 1000)
-- Added `--no-compile` flag to skip `torch.compile`
+- Added `--compile` flag to enable `torch.compile` (off by default)
 - Added compile status reporting in summary banner (requested vs actual)
 - Added `convert_covertype.py` for ARFF-to-CSV conversion
 - Added `pyproject.toml` with `requires-python >= 3.11`
@@ -176,17 +204,20 @@ Parameter count depends on input features (e.g., 2,625 for 7 features, 3,009 for
 ### `GPU-4` -> `GPU-5`
 - Added mixed precision training (float16 via `torch.autocast` + `GradScaler`)
 - Changed compile default to OFF (use `--compile` to enable); compile was slower in practice for this model size
-- Changed early stopping default to OFF (use `--early-stop` to enable); was triggering too aggressively
-- Summary banner now reports precision mode (mixed float16 vs float32)
-- Prints Python version at startup
+- Changed early stopping default to OFF (use `--early-stop` to enable)
+- Summary banner now reports precision mode, PyTorch version, and GPU hardware details
+- Added tensor-to-device timing
+- Upgraded to Python 3.14
+- Added `covertype.csv.zip` for convenient dataset distribution
+- Added CUDA setup instructions for Windows/Linux
 
 ## Project Structure
 
 ```
 eds-project/
 |-- electricity_binarized_UP.csv   # Default dataset
-|-- covertype.                     # Covertype dataset (ARFF format)
-|-- covertype.csv                  # Covertype dataset (after conversion)
+|-- covertype.csv.zip              # Covertype dataset (zipped CSV)
+|-- covertype.                     # Covertype dataset (ARFF source)
 |-- process.py                     # Training script
 |-- convert_covertype.py           # ARFF-to-CSV converter
 |-- convert.txt                    # Ed's original conversion reference

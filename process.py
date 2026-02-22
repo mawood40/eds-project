@@ -65,11 +65,12 @@ print("-" * 50)
 # Convert data to tensors (move to device before training)
 # ============================
 print("Moving tensors to device...", end=" ")
+t = time.perf_counter()
 X_train_t = torch.tensor(X_train, dtype=torch.float32).to(device)
 y_train_t = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
 X_test_t = torch.tensor(X_test, dtype=torch.float32).to(device)
 y_test_t = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1).to(device)
-print("done")
+print(f"done ({time.perf_counter() - t:.3f}s)")
 
 # ============================
 # Define model (streamlined for speed)
@@ -138,7 +139,16 @@ stop_epoch = NUM_EPOCHS
 print(f"\n{'=' * 50}")
 print(f"Data file:   {DATA_FILE}")
 print(f"Python:      {sys.version.split()[0]}")
+print(f"PyTorch:     {torch.__version__}")
 print(f"Device:      {device}")
+if device.type == "cuda":
+    print(f"GPU:         {torch.cuda.get_device_name(0)}")
+    print(f"CUDA:        {torch.version.cuda}")
+    print(f"GPU memory:  {torch.cuda.get_device_properties(0).total_mem / 1024**3:.1f} GB")
+elif device.type == "mps":
+    print(f"GPU:         Apple Silicon (MPS)")
+else:
+    print(f"GPU:         none (CPU only)")
 print(f"Dataset:     {df.shape[0]} rows, {df.shape[1]} columns")
 print(f"Training:    {X_train_t.shape[0]} samples | Test: {X_test_t.shape[0]} samples")
 print(f"Model:       {sum(p.numel() for p in torch_model.parameters()):,} parameters")
